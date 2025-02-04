@@ -7,6 +7,24 @@
 #include <string.h>
 
 #define MAX_LINE_LENGTH 64
+#define STATUS_LED_PIN 2
+#define FRONT_START_LIMIT_PIN 7
+#define BACK_START_LIMIT_PIN 8
+
+void init_peripherals_GPIO() {
+    gpio_init(STATUS_LED_PIN);
+    gpio_init(FRONT_START_LIMIT_PIN);
+    gpio_init(BACK_START_LIMIT_PIN);
+    
+    gpio_set_dir(STATUS_LED_PIN, GPIO_OUT);
+    gpio_set_dir(FRONT_START_LIMIT_PIN, GPIO_IN);
+    gpio_set_dir(BACK_START_LIMIT_PIN, GPIO_IN);
+}
+
+
+bool reset_position() {
+    return true;
+}
 
 void process_text(const char *line, queue_t *movement_queue) {
     char cmd[10];
@@ -74,13 +92,11 @@ bool check_for_commands(queue_t *movement_queue) {
     return false;
 }
 
-bool reset_position() {
-
-}
-
 int main() {
     stdio_init_all();
-    init_GPIO();
+    init_motor_GPIO();
+    init_peripherals_GPIO();
+
     serial_connection_protocol();
 
     sleep_ms(1000);
