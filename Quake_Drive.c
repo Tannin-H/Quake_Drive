@@ -18,7 +18,8 @@ void process_text(const char *line, queue_t *movement_queue) {
         movement_t movement = {speed, acceleration, steps};
         enqueue(movement_queue, movement);
     } else if (strcmp(cmd, "RESET") == 0 && parsed == 1) {
-        printf("Reset command received\n");
+        printf("[PICO] Reset command received\n");
+        reset_position();
     } else {
         printf("Unknown or malformed command: %s\n", line);
     }
@@ -37,15 +38,12 @@ void read_line(char *buffer, int buffer_size) {
     buffer[buffer_size - 1] = '\0';
 }
 
-int main() {
-    stdio_init_all();
-    init_GPIO();
-
+void serial_connection_protocol() {
     while (!tud_cdc_connected()) {
         sleep_ms(100);
     }
 
-    char buffer[5];
+    char buffer[6];
     while (true) {
         printf("OK\n");
 
@@ -53,30 +51,52 @@ int main() {
             uint32_t bytes_read = tud_cdc_read(buffer, sizeof(buffer) - 1);
             buffer[bytes_read] = '\0';
 
-            if (strncmp(buffer, "CONF", 4) == 0) {
-                gpio_put(INDICATOR_LED_PIN, 1);
+            if (strncmp(buffer, "CONF\n", 4) == 0) {
+                gpio_put(STATUS_LED_PIN, 1);
                 break;
             }
         }
 
+        sleep_ms(300);
+    }
+}
+
+bool check_for_commands(queue_t *movement_queue) {
+    if (tud_cdc_available()) {
+        char line[MAX_LINE_LENGTH];
+        read_line(line, sizeof(line));
+        printf("[PICO] Received: %s\n", line);
+        if (strlen(line) > 0) {
+            process_text(line, movement_queue);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool reset_position() {
+
+}
+
+int main() {
+    stdio_init_all();
+    init_GPIO();
+    serial_connection_protocol();
+
+    sleep_ms(1000);
+    queue_t* movement_queue = create_queue();
+    bool commands_pending = false;
+    while (commands_pending == false)
+    {   
+        printf("[PICO] Waiting for commands\n");
+        commands_pending = check_for_commands(movement_queue);
         sleep_ms(100);
     }
 
-    const float delta_f = MAX_SPEED_HZ - MIN_START_FREQ;
-    const float ramp_time = delta_f / (ACCEL_MMPS2 * STEPS_PER_MM);
-
-    queue_t* movement_queue = create_queue();
-    char line[MAX_LINE_LENGTH];
-    read_line(line, sizeof(line));
-
-    if (strlen(line) > 0) {
-        process_text(line, movement_queue);
-    }
-
-    sleep_ms(100);
-
 
     movement_t movement = dequeue(movement_queue);
+    const float delta_f = movement.speed - MIN_START_FREQ;
+    const float ramp_time = delta_f / (movement.acceleration * STEPS_PER_MM);
     perform_movement(MIN_START_FREQ, movement.speed, ramp_time, movement.steps, true);
 
     return 0;

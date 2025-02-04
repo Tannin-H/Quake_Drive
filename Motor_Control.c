@@ -5,11 +5,11 @@ void init_GPIO() {
     gpio_init(DIR_PIN);
     gpio_init(STEP_PIN);
     gpio_init(EN_PIN);
-    gpio_init(INDICATOR_LED_PIN);
+    gpio_init(STATUS_LED_PIN);
     gpio_set_dir(DIR_PIN, GPIO_OUT);
     gpio_set_dir(STEP_PIN, GPIO_OUT);
     gpio_set_dir(EN_PIN, GPIO_OUT);
-    gpio_set_dir(INDICATOR_LED_PIN, GPIO_OUT);
+    gpio_set_dir(STATUS_LED_PIN, GPIO_OUT);
     gpio_put(EN_PIN, 0); // Enable motor driver
 }
 

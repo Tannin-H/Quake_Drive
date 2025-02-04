@@ -9,7 +9,7 @@
 #define DIR_PIN 18
 #define STEP_PIN 19
 #define EN_PIN 16
-#define INDICATOR_LED_PIN 2
+#define STATUS_LED_PIN 2
 
 // Motor parameters
 #define MAX_SPEED_HZ 13000
