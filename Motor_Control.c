@@ -1,5 +1,31 @@
 #include "Motor_Control.h"
 #include "pico/stdlib.h"
+#include "hardware/pio.h"
+#include "hardware/clocks.h"
+#include "stepper.pio.h"
+
+// PIO state machine and program initialization
+PIO pio = pio0;
+uint sm = 0;
+uint offset;
+
+// Initialize PIO for stepper motor control
+void stepper_pio_init(PIO pio, uint sm, uint offset, uint step_pin) {
+    pio_gpio_init(pio, step_pin);  // Initialize the step pin for PIO
+    pio_sm_set_consecutive_pindirs(pio, sm, step_pin, 1, true);  // Set step pin as output
+
+    // Load the PIO program into the PIO memory
+    pio_sm_config c = stepper_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, step_pin, 1);  // Set the step pin in the PIO program
+
+    // Set the clock divider for the desired frequency (default 1 kHz)
+    float div = clock_get_hz(clk_sys) / (1000.0f * 2);  // Default frequency (1 kHz)
+    sm_config_set_clkdiv(&c, div);
+
+    // Initialize the state machine
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
 
 void init_motor_GPIO() {
     gpio_init(DIR_PIN);
@@ -9,19 +35,29 @@ void init_motor_GPIO() {
     gpio_set_dir(STEP_PIN, GPIO_OUT);
     gpio_set_dir(EN_PIN, GPIO_OUT);
     gpio_put(EN_PIN, 0); // Enable motor driver
+
+    // Initialize PIO for stepper motor control
+    offset = pio_add_program(pio, &stepper_program);
+    stepper_pio_init(pio, sm, offset, STEP_PIN);
 }
 
+// Generate steps using PIO
 void generate_steps(float frequency, int steps, bool direction) {
     if (frequency <= 0) return;
 
+    // Set direction pin
     gpio_put(DIR_PIN, direction);
-    uint32_t delay_us = (uint32_t)(500000.0f / frequency); // Half-period in µs
 
-    for (int i = 0; i < steps; ++i) {
-        gpio_put(STEP_PIN, 1);
-        sleep_us(delay_us);
-        gpio_put(STEP_PIN, 0);
-        sleep_us(delay_us);
+    // Adjust the clock divider for the desired frequency
+    float div = clock_get_hz(clk_sys) / (frequency * 2);  // Calculate divider for frequency
+    pio_sm_set_clkdiv(pio, sm, div);
+
+    // Send the number of steps to the PIO state machine
+    pio_sm_put_blocking(pio, sm, steps);
+
+    // Wait for the state machine to finish (optional, if you need to block)
+    while (!pio_sm_is_tx_fifo_empty(pio, sm)) {
+        tight_loop_contents();
     }
 }
 

@@ -80,7 +80,7 @@ void read_line(char *buffer, int buffer_size) {
     buffer[buffer_size - 1] = '\0';
 }
 
-void serial_connection_protocol() {
+void start_serial_connection() {
     while (!tud_cdc_connected()) {
         sleep_ms(100);
     }
@@ -120,10 +120,12 @@ int main() {
     stdio_init_all();
     init_motor_GPIO();
     init_peripherals_GPIO();
-
-    serial_connection_protocol();
+    start_serial_connection();
 
     sleep_ms(1000);
+
+    reset_position();  
+    
     queue_t* movement_queue = create_queue();
     bool commands_pending = false;
     while (commands_pending == false)
@@ -139,7 +141,6 @@ int main() {
     const float ramp_time = delta_f / (movement.acceleration * STEPS_PER_MM);
     perform_movement(MIN_START_FREQ, movement.speed, ramp_time, movement.steps, true);
     printf("[PICO] Movement completed\n");
-    reset_position();  
 
     return 0;
 }
