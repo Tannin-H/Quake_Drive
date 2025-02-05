@@ -8,21 +8,45 @@
 
 #define MAX_LINE_LENGTH 64
 #define STATUS_LED_PIN 2
-#define FRONT_START_LIMIT_PIN 7
-#define BACK_START_LIMIT_PIN 8
+#define FRONT_LIMIT_SWITCH_PIN 7
+#define BACK_LIMIT_SWITCH_PIN 8
 
 void init_peripherals_GPIO() {
     gpio_init(STATUS_LED_PIN);
-    gpio_init(FRONT_START_LIMIT_PIN);
-    gpio_init(BACK_START_LIMIT_PIN);
+    gpio_init(FRONT_LIMIT_SWITCH_PIN);
+    gpio_init(BACK_LIMIT_SWITCH_PIN);
     
     gpio_set_dir(STATUS_LED_PIN, GPIO_OUT);
-    gpio_set_dir(FRONT_START_LIMIT_PIN, GPIO_IN);
-    gpio_set_dir(BACK_START_LIMIT_PIN, GPIO_IN);
+    gpio_set_dir(FRONT_LIMIT_SWITCH_PIN, GPIO_IN);
+    gpio_set_dir(BACK_LIMIT_SWITCH_PIN, GPIO_IN);
+
+    gpio_pull_up(FRONT_LIMIT_SWITCH_PIN);
+    gpio_pull_up(BACK_LIMIT_SWITCH_PIN);
 }
 
 
 bool reset_position() {
+    int step_count = 0;
+
+    // Move backward until the BACK limit switch is triggered
+    while (gpio_get(BACK_LIMIT_SWITCH_PIN) == 1) {  
+        perform_movement(MIN_START_FREQ, 500, 0, 1, true);
+        step_count++;
+    }
+
+    // Reset step count
+    step_count = 0;
+
+    // Move forward until the FRONT limit switch is triggered
+    while (gpio_get(FRONT_LIMIT_SWITCH_PIN) == 1) {  
+        perform_movement(MIN_START_FREQ, 500, 0, 1, false);
+        step_count++;
+    }
+
+    // Move to the middle (halfway between both limit switches)
+    int middle_steps = step_count / 2;
+    perform_movement(500, MIN_START_FREQ, 0, middle_steps, true); 
+
     return true;
 }
 
@@ -108,12 +132,14 @@ int main() {
         commands_pending = check_for_commands(movement_queue);
         sleep_ms(100);
     }
-
+    
 
     movement_t movement = dequeue(movement_queue);
     const float delta_f = movement.speed - MIN_START_FREQ;
     const float ramp_time = delta_f / (movement.acceleration * STEPS_PER_MM);
     perform_movement(MIN_START_FREQ, movement.speed, ramp_time, movement.steps, true);
+    printf("[PICO] Movement completed\n");
+    reset_position();  
 
     return 0;
 }
