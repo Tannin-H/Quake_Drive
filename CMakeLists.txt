@@ -34,7 +34,7 @@ project(Quake_Drive C CXX ASM)
 pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
-add_executable(Quake_Drive Quake_Drive.c Queue.c Motor_Control.c)
+add_executable(Quake_Drive Quake_Drive.c Motor_Control.c)
 
 pico_set_program_name(Quake_Drive "Quake_Drive")
 pico_set_program_version(Quake_Drive "0.1")
@@ -44,13 +44,11 @@ pico_enable_stdio_uart(Quake_Drive 0)
 pico_enable_stdio_usb(Quake_Drive 1)
 
 
-# Add PIO file to be compiled into a header
-pico_generate_pio_header(Quake_Drive ${CMAKE_CURRENT_LIST_DIR}/stepper.pio)
 
 # Add the standard library and hardware_pio to the build
 target_link_libraries(Quake_Drive
         pico_stdlib
-        hardware_pio)
+        pico_multicore)
 
 # Add the standard include files to the build
 target_include_directories(Quake_Drive PRIVATE
