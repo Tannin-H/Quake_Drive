@@ -1,3 +1,4 @@
+//Quake Drive - Pico Firmware
 #include "Motor_Control.h"
 #include "pico/multicore.h"
 #include "pico/util/queue.h"
@@ -13,37 +14,69 @@
 typedef enum {
     CMD_MOVE,
     CMD_RESET,
-    CMD_STOP
+    CMD_STOP,
+    CMD_MANUAL
 } CommandType;
 
 typedef struct {
     CommandType type;
-    movement_t movement;
+    union {
+        movement_t movement;
+        struct {
+            movement_t forward;
+            movement_t backward;
+        } manual;
+    };
 } Command;
 
 queue_t command_queue;
 volatile bool stop_requested = false;
+volatile bool manual_mode = false;
+movement_t manual_forward;
+movement_t manual_backward;
+
+void front_limit_isr(uint gpio, uint32_t events) {
+    if (!stop_requested) { // Ignore during reset
+        stop_requested = true;
+        printf("[PICO] Front limit switch triggered, stopping motor.\n");
+    }
+}
+
+void back_limit_isr(uint gpio, uint32_t events) {
+    if (!stop_requested) { // Ignore during reset
+        stop_requested = true;
+        printf("[PICO] Back limit switch triggered, stopping motor.\n");
+    }
+}
 
 void init_peripherals_GPIO() {
     gpio_init(STATUS_LED_PIN);
     gpio_init(FRONT_LIMIT_SWITCH_PIN);
     gpio_init(BACK_LIMIT_SWITCH_PIN);
-    
+
     gpio_set_dir(STATUS_LED_PIN, GPIO_OUT);
     gpio_set_dir(FRONT_LIMIT_SWITCH_PIN, GPIO_IN);
     gpio_set_dir(BACK_LIMIT_SWITCH_PIN, GPIO_IN);
 
     gpio_pull_up(FRONT_LIMIT_SWITCH_PIN);
     gpio_pull_up(BACK_LIMIT_SWITCH_PIN);
+
+    // Attach interrupts for limit switches
+    gpio_set_irq_enabled_with_callback(FRONT_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true, &front_limit_isr);
+    gpio_set_irq_enabled_with_callback(BACK_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true, &back_limit_isr);
 }
+
 
 bool reset_position() {
     int step_count = 0;
     stop_requested = false;
 
-    // Move backward until BACK limit switch is triggered or stopped
+    // Disable limit switch interrupts during reset
+    gpio_set_irq_enabled(FRONT_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, false);
+    gpio_set_irq_enabled(BACK_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, false);
+
     while (gpio_get(BACK_LIMIT_SWITCH_PIN) == 1 && !stop_requested) {
-        movement_t back_movement = { .speed = 500, .acceleration = 0, .steps = 1, .direction = true };
+        movement_t back_movement = { .speed = 1200, .acceleration = 100, .steps = 1, .direction = true };
         perform_movement(back_movement, &stop_requested);
         step_count++;
     }
@@ -51,55 +84,66 @@ bool reset_position() {
 
     step_count = 0;
 
-    // Move forward until FRONT limit switch is triggered or stopped
     while (gpio_get(FRONT_LIMIT_SWITCH_PIN) == 1 && !stop_requested) {
-        movement_t for_movement = { .speed = 500, .acceleration = 0, .steps = 1, .direction = false };
+        movement_t for_movement = { .speed = 1200, .acceleration = 100, .steps = 1, .direction = false };
         perform_movement(for_movement, &stop_requested);
         step_count++;
     }
     if (stop_requested) return false;
 
-    // Move to the middle
     int middle_steps = step_count / 2;
-    movement_t home_movement = { .speed = 1200, .acceleration = 0, .steps = middle_steps, .direction = true };
+    printf("[PICO] Middle steps: %d\n", middle_steps);
+    movement_t home_movement = { .speed = 1600, .acceleration = 100, .steps = middle_steps, .direction = true };
     perform_movement(home_movement, &stop_requested);
+
+    // Re-enable limit switch interrupts after reset
+    gpio_set_irq_enabled(FRONT_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true);
+    gpio_set_irq_enabled(BACK_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true);
 
     return !stop_requested;
 }
 
-void process_text(const char *line, queue_t *command_queue) {
-    char cmd[11]; // Increased to 11 to hold "BATCH_SIZE" (10 chars + null)
-    int speed = 0, acceleration = 0, steps = 0, direction = 0;
 
-    // Step 1: Read the full command name (up to 10 chars)
-    if (sscanf(line, "%10s", cmd) == 1) { // Now uses %10s to read 10 characters
+void process_text(const char *line, queue_t *command_queue) {
+    char cmd[11];
+    int params[8];
+
+    if (sscanf(line, "%10s", cmd) == 1) {
         if (strcmp(cmd, "BATCH_SIZE") == 0) {
-            // Parse BATCH_SIZE (expect 1 argument)
             int batch_size;
             if (sscanf(line, "%10s %d", cmd, &batch_size) == 2) {
                 queue_free(command_queue);
                 queue_init(command_queue, sizeof(Command), batch_size);
                 printf("[PICO] Queue resized to %d\n", batch_size);
-            } else {
-                printf("Invalid BATCH_SIZE command\n");
             }
-        } else if (strcmp(cmd, "MOVE") == 0) {
-            // Parse MOVE (4 arguments: speed, acceleration, steps, direction)
-            if (sscanf(line, "%10s %d %d %d %d", cmd, &speed, &acceleration, &steps, &direction) == 5) {
+        }
+        else if (strcmp(cmd, "MOVE") == 0) {
+            if (sscanf(line, "%10s %d %d %d %d", cmd, 
+                     &params[0], &params[1], &params[2], &params[3]) == 5) {
                 Command command = { 
-                    .type = CMD_MOVE, 
-                    .movement = {speed, acceleration, steps, direction}
+                    .type = CMD_MOVE,
+                    .movement = {params[0], params[1], params[2], params[3]}
                 };
                 queue_add_blocking(command_queue, &command);
-            } else {
-                printf("Invalid MOVE command\n");
             }
-        } else if (strcmp(cmd, "STOP") == 0) {
+        }
+        else if (strcmp(cmd, "MANUAL") == 0) {
+            if (sscanf(line, "%10s %d %d %d %d %d %d %d %d", cmd,
+                     &params[0], &params[1], &params[2], &params[3],
+                     &params[4], &params[5], &params[6], &params[7]) == 9) {
+                Command command = {
+                    .type = CMD_MANUAL,
+                    .manual.forward = {params[0], params[1], params[2], params[3]},
+                    .manual.backward = {params[4], params[5], params[6], params[7]}
+                };
+                queue_add_blocking(command_queue, &command);
+            }
+        }
+        else if (strcmp(cmd, "STOP") == 0) {
             multicore_fifo_push_blocking(CMD_STOP);
-        } else if (strcmp(cmd, "RESET") == 0) {
+        }
+        else if (strcmp(cmd, "RESET") == 0) {
             multicore_fifo_push_blocking(CMD_RESET);
-        } else {
-            printf("Unknown command: %s\n", line);
         }
     }
 }
@@ -149,32 +193,63 @@ bool check_for_commands(queue_t *command_queue) {
 
 void core1_entry() {
     while (true) {
-        // Check for STOP/RESET commands via FIFO
         if (multicore_fifo_rvalid()) {
             uint32_t cmd = multicore_fifo_pop_blocking();
             if (cmd == CMD_STOP) {
                 stop_requested = true;
                 printf("[PICO] STOP command received\n");
-            } else if (cmd == CMD_RESET) {
+            }
+            else if (cmd == CMD_RESET) {
                 stop_requested = true;
                 reset_position();
                 printf("[PICO] RESET command received\n");
             }
         }
 
-        // Process movement commands
-        Command cmd;
-        if (queue_try_remove(&command_queue, &cmd)) {
-            switch (cmd.type) {
-                case CMD_MOVE:
-                    perform_movement(cmd.movement, &stop_requested);
-                    break;
-                default:
-                    break;
+        if (manual_mode) {
+            stop_requested = false;
+            while (!stop_requested) {
+                perform_movement(manual_forward, &stop_requested);
+                if (stop_requested) break;
+                perform_movement(manual_backward, &stop_requested);
+                if (stop_requested) break;
+
+                if (multicore_fifo_rvalid()) {
+                    uint32_t fifo_cmd = multicore_fifo_pop_blocking();
+                    if (fifo_cmd == CMD_STOP) {
+                        stop_requested = true;
+                        printf("[PICO] STOP received in manual mode\n");
+                        break;
+                    }
+                    else if (fifo_cmd == CMD_RESET) {
+                        stop_requested = true;
+                        reset_position();
+                        printf("[PICO] RESET received in manual mode\n");
+                        break;
+                    }
+                }
             }
-        } else {
-            tight_loop_contents(); // Minimize latency
+            manual_mode = false;
         }
+        else {
+            Command cmd;
+            if (queue_try_remove(&command_queue, &cmd)) {
+                printf("[CORE1] Processing command type: %d\n", cmd.type);
+                switch (cmd.type) {
+                    case CMD_MOVE:
+                        perform_movement(cmd.movement, &stop_requested);
+                        break;
+                    case CMD_MANUAL:
+                        manual_forward = cmd.manual.forward;
+                        manual_backward = cmd.manual.backward;
+                        manual_mode = true;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        tight_loop_contents();
     }
 }
 
@@ -187,11 +262,12 @@ int main() {
 
     reset_position();
 
+    queue_init(&command_queue, sizeof(Command), 10);
     multicore_launch_core1(core1_entry);
 
     while (true) {
         check_for_commands(&command_queue);
-        sleep_ms(10); // Reduce CPU usage
+        sleep_ms(10);
     }
 
     return 0;

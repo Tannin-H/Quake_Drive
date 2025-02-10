@@ -15,7 +15,6 @@
 #define MIN_START_FREQ 1600      // Minimum starting frequency in Hz
 #define STEPS_PER_MM 80.0f       // Steps per millimeter (adjust based on your setup)
 #define ACCEL_MMPS2 1500.0f      // Desired acceleration in mm/s²
-#define NUM_STEPS 2000           // Default number of steps for movement
 
 // Data structure for movement parameters
 typedef struct {
