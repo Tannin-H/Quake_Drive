@@ -110,6 +110,7 @@ void process_text(const char *line, queue_t *command_queue) {
 
     if (sscanf(line, "%10s", cmd) == 1) {
         if (strcmp(cmd, "BATCH_SIZE") == 0) {
+            stop_requested = false;
             int batch_size;
             if (sscanf(line, "%10s %d", cmd, &batch_size) == 2) {
                 queue_free(command_queue);
@@ -140,6 +141,7 @@ void process_text(const char *line, queue_t *command_queue) {
             }
         }
         else if (strcmp(cmd, "STOP") == 0) {
+            stop_requested = true;
             multicore_fifo_push_blocking(CMD_STOP);
         }
         else if (strcmp(cmd, "RESET") == 0) {
@@ -196,8 +198,12 @@ void core1_entry() {
         if (multicore_fifo_rvalid()) {
             uint32_t cmd = multicore_fifo_pop_blocking();
             if (cmd == CMD_STOP) {
-                stop_requested = true;
                 printf("[PICO] STOP command received\n");
+                // Clear the command queue
+                Command discarded;
+                while (queue_try_remove(&command_queue, &discarded)) {
+                    // Discard all queued commands
+                }
             }
             else if (cmd == CMD_RESET) {
                 stop_requested = true;
@@ -234,7 +240,6 @@ void core1_entry() {
         else {
             Command cmd;
             if (queue_try_remove(&command_queue, &cmd)) {
-                printf("[CORE1] Processing command type: %d\n", cmd.type);
                 switch (cmd.type) {
                     case CMD_MOVE:
                         perform_movement(cmd.movement, &stop_requested);

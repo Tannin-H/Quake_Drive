@@ -50,7 +50,6 @@ void leib_ramp(float start_freq, float target_freq, float ramp_time, bool direct
 
 void perform_movement(movement_t movement, volatile bool* stop_requested) {
     if (*stop_requested) return;
-
     float start_freq = MIN_START_FREQ;
     uint max_speed = movement.speed;
 
