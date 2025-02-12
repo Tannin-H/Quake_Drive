@@ -35,37 +35,6 @@ volatile bool manual_mode = false;
 movement_t manual_forward;
 movement_t manual_backward;
 
-void front_limit_isr(uint gpio, uint32_t events) {
-    if (!stop_requested) { // Ignore during reset
-        stop_requested = true;
-        printf("[PICO] Front limit switch triggered, stopping motor.\n");
-    }
-}
-
-void back_limit_isr(uint gpio, uint32_t events) {
-    if (!stop_requested) { // Ignore during reset
-        stop_requested = true;
-        printf("[PICO] Back limit switch triggered, stopping motor.\n");
-    }
-}
-
-void init_peripherals_GPIO() {
-    gpio_init(STATUS_LED_PIN);
-    gpio_init(FRONT_LIMIT_SWITCH_PIN);
-    gpio_init(BACK_LIMIT_SWITCH_PIN);
-
-    gpio_set_dir(STATUS_LED_PIN, GPIO_OUT);
-    gpio_set_dir(FRONT_LIMIT_SWITCH_PIN, GPIO_IN);
-    gpio_set_dir(BACK_LIMIT_SWITCH_PIN, GPIO_IN);
-
-    gpio_pull_up(FRONT_LIMIT_SWITCH_PIN);
-    gpio_pull_up(BACK_LIMIT_SWITCH_PIN);
-
-    // Attach interrupts for limit switches
-    gpio_set_irq_enabled_with_callback(FRONT_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true, &front_limit_isr);
-    gpio_set_irq_enabled_with_callback(BACK_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true, &back_limit_isr);
-}
-
 
 bool reset_position() {
     int step_count = 0;
@@ -103,6 +72,40 @@ bool reset_position() {
     return !stop_requested;
 }
 
+volatile bool reset_flag = false;
+
+void front_limit_isr(uint gpio, uint32_t events) {
+    if (!stop_requested) { 
+        stop_requested = true;
+        reset_flag = true;  // Set flag instead of calling reset directly
+        printf("[PICO] Front limit switch triggered.\n");
+    }
+}
+
+void back_limit_isr(uint gpio, uint32_t events) {
+    if (!stop_requested) { 
+        stop_requested = true;
+        reset_flag = true;  // Set flag instead of calling reset directly
+        printf("[PICO] Back limit switch triggered.\n");
+    }
+}
+
+void init_peripherals_GPIO() {
+    gpio_init(STATUS_LED_PIN);
+    gpio_init(FRONT_LIMIT_SWITCH_PIN);
+    gpio_init(BACK_LIMIT_SWITCH_PIN);
+
+    gpio_set_dir(STATUS_LED_PIN, GPIO_OUT);
+    gpio_set_dir(FRONT_LIMIT_SWITCH_PIN, GPIO_IN);
+    gpio_set_dir(BACK_LIMIT_SWITCH_PIN, GPIO_IN);
+
+    gpio_pull_up(FRONT_LIMIT_SWITCH_PIN);
+    gpio_pull_up(BACK_LIMIT_SWITCH_PIN);
+
+    // Attach interrupts for limit switches
+    gpio_set_irq_enabled_with_callback(FRONT_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true, &front_limit_isr);
+    gpio_set_irq_enabled_with_callback(BACK_LIMIT_SWITCH_PIN, GPIO_IRQ_EDGE_FALL, true, &back_limit_isr);
+}
 
 void process_text(const char *line, queue_t *command_queue) {
     char cmd[11];
@@ -265,13 +268,24 @@ int main() {
     start_serial_connection();
     sleep_ms(1000);
 
-    reset_position();
+    // Only reset if the limit switches are not already pressed
+    if (gpio_get(FRONT_LIMIT_SWITCH_PIN) == 1 && gpio_get(BACK_LIMIT_SWITCH_PIN) == 1) {
+        printf("[PICO] Initial calibration...\n");
+        reset_position();
+    }
 
     queue_init(&command_queue, sizeof(Command), 10);
     multicore_launch_core1(core1_entry);
 
     while (true) {
         check_for_commands(&command_queue);
+        
+        if (reset_flag) { 
+            reset_flag = false;
+            printf("[PICO] Resetting position...\n");
+            reset_position();
+        }
+
         sleep_ms(10);
     }
 
