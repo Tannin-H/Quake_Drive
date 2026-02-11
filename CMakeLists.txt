@@ -34,7 +34,7 @@ project(Quake_Drive C CXX ASM)
 pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
-add_executable(Quake_Drive Quake_Drive.c Motor_Control.c)
+add_executable(Quake_Drive Quake_Drive.c Motor_Control.c timing.c)
 
 pico_set_program_name(Quake_Drive "Quake_Drive")
 pico_set_program_version(Quake_Drive "0.1")

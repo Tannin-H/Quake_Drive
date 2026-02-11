@@ -8,8 +8,8 @@
 
 #define MAX_LINE_LENGTH 64
 #define STATUS_LED_PIN 2
-#define FRONT_LIMIT_SWITCH_PIN 7
-#define BACK_LIMIT_SWITCH_PIN 8
+#define FRONT_LIMIT_SWITCH_PIN 7 // closest to the motor
+#define BACK_LIMIT_SWITCH_PIN 8 //Furtherst from the motor
 
 typedef enum {
     CMD_MOVE,
@@ -78,7 +78,7 @@ void front_limit_isr(uint gpio, uint32_t events) {
     if (!stop_requested) { 
         stop_requested = true;
         reset_flag = true;  // Set flag instead of calling reset directly
-        printf("[PICO] Front limit switch triggered.\n");
+        printf("Limit Triggered\n");
     }
 }
 
@@ -86,7 +86,7 @@ void back_limit_isr(uint gpio, uint32_t events) {
     if (!stop_requested) { 
         stop_requested = true;
         reset_flag = true;  // Set flag instead of calling reset directly
-        printf("[PICO] Back limit switch triggered.\n");
+        printf("Limit Triggered\n");
     }
 }
 
