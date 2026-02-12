@@ -1,1 +1,1 @@
-Repo containing the firmware to be run on a raspberry pi pico to interface with the Quaketable hardware
+Repo containing the firmware to be run on a raspberry pi pico to interface with the Quaketable hardware. Companion repository for control application found [here](https://github.com/Tannin-H/Quake_Table) 
